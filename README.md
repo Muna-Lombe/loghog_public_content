@@ -71,7 +71,7 @@ const LogHogClient = require('./loghog-client.js');
 
 // Configure the client
 const loghog = new LogHogClient(
-  'https://loghog.your-domain.workers.dev',
+  'https://apihog.katundu.org',
   'paste-your-app-token-here'
 );
 
@@ -99,7 +99,7 @@ from loghog_client import LogHogClient
 
 # Configure the client
 loghog = LogHogClient(
-    api_url='https://loghog.your-domain.workers.dev',
+    api_url='https://apihog.katundu.org',
     token='paste-your-app-token-here'
 )
 
