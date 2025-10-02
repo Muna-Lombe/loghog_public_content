@@ -1,2 +1,2 @@
 # loghog_public_content
-public content 
+publicly served domain content loghog
