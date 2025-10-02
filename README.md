@@ -1,5 +1,5 @@
-# loghog_public_content
-# How to Connect Your App to LogHog
+# LogHog | The Log Monitor For Everyone
+## How to Connect Your App to LogHog
 
 This guide provides a step-by-step process for connecting your application to the LogHog monitoring system. Once connected, your application's logs will be streamed, stored, and available for analysis in the LogHog dashboard.
 
