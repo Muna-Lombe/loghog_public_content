@@ -73,8 +73,8 @@ class LogHogClient {
    * Sends a structured log entry to the LogHog API.
    * @param {string} level - The log level (e.g., 'info', 'warn', 'error', 'debug', 'fatal'). This is a required field.
    * @param {string} message - A concise, human-readable summary of the log event. This is a required field.
-   * @param {object} [data={}] - An optional object containing detailed structured data for the log. This object's contents will be deeply compressed and stored.
-   *                               It can also contain special fields like `category`, `trace_id`, `span_id`, `template_id`, `params`, and `tags` which are extracted and indexed for querying.
+   * @param {object} [data={}] - An optional object containing detailed structured data for the log. This object's contents will be deeply compressed and stored as the `message_body_compressed`.
+   *                               It can also contain special fields like `category`, `trace_id`, `span_id`, `template`, `params`, and `tags` which are extracted and indexed for querying.
    */
   async log(level, message, data = {}) {
     if (!level || !message) {
@@ -83,18 +83,19 @@ class LogHogClient {
     }
 
     // Construct the payload according to LogHog's expected schema.
-    // Fields like 'category', 'trace_id', 'span_id', 'template_id', 'params', 'tags'
-    // are extracted from 'data' for indexing and filtering, and also included in 'body'.
+    // The `message` parameter is stored directly. The `data` object is stored as `message_body_compressed`.
+    // Fields like 'category', 'trace_id', 'span_id', 'template', 'params', 'tags'
+    // are extracted from 'data' for indexing and filtering.
     const payload = {
       timestamp: new Date().toISOString(),      // ISO 8601 format (e.g., "2024-01-01T12:00:00.000Z"). Crucial for chronological ordering.
       level: level,                             // Log severity: 'info', 'warn', 'error', 'debug', 'fatal'. Helps in filtering and severity analysis.
       message: message,                         // A brief, descriptive summary of the event. Essential for quick understanding.
-      body: data,                               // The comprehensive JSON object containing all detailed, structured data related to the log event.
+      body: data,                               // The comprehensive JSON object containing all detailed, structured data related to the log event. This will be compressed and stored as `message_body_compressed`.
       category: data.category || 'general',       // Optional: A high-level classification of the log (e.g., 'auth', 'database', 'network'). Useful for broad filtering.
       trace_id: data.trace_id || undefined,     // Optional: A unique identifier to correlate multiple log entries belonging to a single request or transaction across services.
       span_id: data.span_id || undefined,       // Optional: An identifier for a specific operation within a trace, useful for distributed tracing contexts.
-      template_id: data.template_id || undefined, // Optional: An identifier for a predefined log message template, useful for grouping similar logs.
-      params: data.params || undefined,         // Optional: An object containing parameters that fill a predefined log message template.
+      template: data.template || undefined,     // Optional: An object containing 'name' (string) of a predefined log template and 'params' (object) for its parameters.
+      params: data.params || undefined,         // DEPRECATED: Parameters should now be part of the 'template' object. Use template.params instead.
       tags: data.tags || undefined              // Optional: An object of key-value pairs for additional metadata and filtering (e.g., { environment: 'production', service: 'payments-api' }).
     };
 
@@ -166,13 +167,19 @@ class LogHogClient {
 
 LogHog provides several predefined log templates that you can use to standardize your log messages. When using a template, provide its `name` in the `template` field of your log payload, along with any required `params`.
 
-| Template Name        | Description                       | Template String                               |
-|----------------------|-----------------------------------|-----------------------------------------------|
-| `HTTP_INFO`          | Informational HTTP request log    | `HTTP {{statusCode}} {{method}} {{path}}`     |
-| `HTTP_ERROR`         | Error in HTTP request             | `HTTP Error {{statusCode}} {{method}} {{path}}` |
-| `AUTH_LOGIN_SUCCESS` | User login successful             | `User {{email}} logged in successfully`       |
-| `AUTH_LOGIN_FAILURE` | User login failed                 | `Failed login attempt for user {{email}}`     |
-| `DB_QUERY_SLOW`      | Database query was slow           | `Slow DB query on table {{table}} took {{duration}}ms` |
+| Template Name         | Description                            | Template String                                                              |
+|-----------------------|----------------------------------------|------------------------------------------------------------------------------|
+| `HTTP_INFO`           | Informational HTTP request log         | `HTTP {{statusCode}} {{method}} {{path}}`                                    |
+| `HTTP_ERROR`          | Error in HTTP request                  | `HTTP Error {{statusCode}} {{method}} {{path}}`                              |
+| `AUTH_LOGIN_SUCCESS`  | User login successful                  | `User {{email}} logged in successfully`                                      |
+| `AUTH_LOGIN_FAILURE`  | User login failed                      | `Failed login attempt for user {{email}}`                                    |
+| `DB_QUERY_SLOW`       | Database query was slow                | `Slow DB query on table {{table}} took {{duration}}ms`                       |
+| `IMAGE_PROC_ERROR`    | Image processing error                 | `Failed to process user image: {{error}}`                                    |
+| `USER_ACTION`         | General user action                    | `User {{userId}} performed action: {{action}}`                               |
+| `SERVICE_STATUS_CHANGE`| Service status change                 | `Service {{serviceName}} status changed to: {{newStatus}} from {{oldStatus}}`|
+| `DATABASE_ERROR`      | Database operation error               | `Database error in {{operation}} on table {{table}}: {{errorMessage}}`       |
+| `CONFIG_UPDATE`       | Configuration update                   | `Configuration updated by {{user}}: {{key}} changed from "{{oldValue}}" to "{{newValue}}"`|
+| `EXTERNAL_API_CALL`   | External API call                      | `External API call to {{apiName}} {{method}} {{endpoint}} with status {{statusCode}}`|
 
 ### Advanced Considerations for Custom Clients
 
@@ -342,6 +349,25 @@ loghog.error('Payment processing failed.', {
     service: 'payments-api'
   }
 });
+
+loghog.error('Failed to process user image', {
+  body: {
+    userId: 'user-456',
+    imageSize: 5242880, // in bytes
+    imageType: 'image/jpeg',
+    error: 'Image resolution too high.',
+    maxResolution: '4096x4096'
+  },
+  tags: {
+    service: 'image-processor',
+    region: 'us-east-1',
+    environment: 'production'
+  },
+  trace_id: 'trace-xyz-789',
+  span_id: 'span-abc-456',
+  category: 'media',
+  template: { name: 'IMAGE_PROC_ERROR', params: { errorCode: 'resolution_too_high' } }
+});
 ```
 
 ### Python Example
@@ -391,7 +417,7 @@ LogHog is most powerful when you send structured data. The log payload can inclu
 |---------------|---------|-------------------------------------------------------|
 | `level`       | String  | `info`, `warn`, `error`, `debug`, `fatal`. Required.   |
 | `message`     | String  | A short, human-readable summary of the log.           |
-| `body`        | Object  | The full, detailed payload. This is what gets compressed. |
+| `body`        | Object  | The full, detailed payload. This is what gets compressed into `message_body_compressed` in the database. |
 | `tags`        | Object  | Key-value pairs for filtering (e.g., `env:prod`).       |
 | `trace_id`    | String  | An ID to correlate logs across a single request/trace. |
 | `span_id`     | String  | An ID for a specific operation within a trace. |
@@ -400,7 +426,7 @@ LogHog is most powerful when you send structured data. The log payload can inclu
 
 ### Example of a Rich Log Payload:
 
-```javascript
+```
 loghog.error('Failed to process user image', {
   body: {
     userId: 'user-456',
@@ -417,8 +443,22 @@ loghog.error('Failed to process user image', {
   trace_id: 'trace-xyz-789',
   span_id: 'span-abc-456',
   category: 'media',
-  template: { id: 'IMAGE_PROC_ERROR', params: { errorCode: 'resolution_too_high' } }
+  template: { name: 'IMAGE_PROC_ERROR', params: { errorCode: 'resolution_too_high' } }
 });
 ```
 
 By providing rich, structured data, you can leverage LogHog's filtering, searching, and smart formatting capabilities to their fullest potential.
+
+---
+
+## Viewing Detailed Log Bodies in the UI
+
+LogHog now provides an enhanced interface for viewing the full, structured body of your logs directly in the dashboard.
+
+1.  **Locate the Log**: In the "Realtime Logs" list, identify a log entry that has a detailed body (indicated by the presence of the "View Log Body" button in the "Actions" column).
+2.  **Open the Detail Modal**: Click the <kbd>View Log Body</kbd> button (represented by an <kbd>Eye</kbd> icon) next to the relevant log entry.
+3.  **Explore the Structured Body**: A modal window will appear, displaying the log's structured `body` content.
+    *   The modal has a fixed height, and sections within it (like "Fields", "Arrays", "Nested Objects") are collapsible/expandable like an accordion.
+    *   Only one section can be open at a time.
+    *   If a section's content (e.g., the `fields` object) overflows its designated area, it will automatically become scrollable, while other sections remain static.
+    *   This allows for easy navigation and inspection of large or deeply nested log payloads.
